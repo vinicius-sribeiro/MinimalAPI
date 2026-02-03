@@ -7,6 +7,7 @@
     <RootNamespace>MinimalAPI</RootNamespace>
     <AssemblyName>MinimalAPI</AssemblyName>
     <AssemblyTitle>MinimalAPI</AssemblyTitle>
+    <UserSecretsId>aaa8a4a8-9016-4c6a-abe1-45ec47494706</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
