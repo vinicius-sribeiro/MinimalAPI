@@ -14,41 +14,13 @@ public class AdminService : IAdminService
     public AdminService(MinimalApiContext context)
     {
         _context = context;
-    }
-
-    public Usuario CreateAdmin(LoginDTO dto)
-    {
-        var admin = new Usuario
-        {
-            Email = dto.Email,
-            Senha = dto.Senha,
-            Cargo = Cargos.Admin
-        };
-
-        _context.Usuarios.Add(admin);
-        _context.SaveChanges();
-
-        return admin;
-    }
-    public bool ValidateAdminLogin(LoginDTO dto)
-    {
-        var admin = _context.Usuarios.FirstOrDefault(a => a.Email == dto.Email && a.Senha == dto.Senha);
-
-        if (admin is null) return false;
-
-        if (admin.Cargo == Cargos.User)
-        {
-            return false;
-        }
-
-        return true;
-    }
+    }       
 
     public Usuario? GetAdminById(int id)
     {
         var admin = _context.Usuarios.Find(id);
 
-        if (admin is null || admin.Cargo != Cargos.Admin)
+        if (admin is null || admin.Cargo != Cargo.Admin)
         {
             return null;
         }
@@ -61,7 +33,7 @@ public class AdminService : IAdminService
         IQueryable<Usuario> query = _context.Usuarios;
 
         if (!string.IsNullOrEmpty(dto.Email))
-            query = query.Where(u => EF.Functions.Like(u.Email.ToLower(), $"%{dto.Email.ToLower()}%");
+            query = query.Where(u => EF.Functions.Like(u.Email.ToLower(), $"%{dto.Email.ToLower()}%"));
 
         if (dto.Cargos.HasValue)
             query = query.Where(u => u.Cargo == dto.Cargos.Value);

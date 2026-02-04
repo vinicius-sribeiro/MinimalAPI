@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MinimalAPI.Infrastructure;
 
@@ -11,9 +12,11 @@ using MinimalAPI.Infrastructure;
 namespace MinimalAPI.Migrations
 {
     [DbContext(typeof(MinimalApiContext))]
-    partial class MinimalApiContextModelSnapshot : ModelSnapshot
+    [Migration("20260204164553_UpdateUsuarios")]
+    partial class UpdateUsuarios
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

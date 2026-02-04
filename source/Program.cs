@@ -83,6 +83,7 @@ builder.Services.AddDbContext<MinimalApiContext>(options =>
 builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IVeiculoService, VeiculoService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 #endregion
 
 #region APP
@@ -106,7 +107,52 @@ app.MapGet("/", () => Results.Redirect("/scalar")).ExcludeFromDescription();
 app.UseHttpsRedirection();
 #endregion
 
-#region ROUTES
+#region ENDPOINTS
+
+#region AUTH
+/* ===================
+*  AUTH
+* ===================
+*/
+
+// CADASTRO USUÁRIO
+app.MapPost("/user/register", (IAuthService service, [FromBody] RegisterDto dto) =>
+{
+    var result = service.RegisterUser(dto, Cargo.User);
+
+    if (!result.Success) 
+        return Results.Conflict(new { message = result.Message });
+
+    return Results.CreatedAtRoute("GetUserById", new { id = result.Data?.Id }, result.Data);
+})
+    .WithTags("Usuários");
+
+// CADASTRO ADMIN
+app.MapPost("/admin/register", (IAuthService service, [FromBody] RegisterDto dto) =>
+{
+    var result = service.RegisterUser(dto, Cargo.Admin);
+
+    if (!result.Success) 
+        return Results.Conflict(new { message = result.Message });
+
+    return Results.CreatedAtRoute("GetAdminById", new { id = result.Data?.Id }, result.Data);
+})
+    .WithTags("Admins");
+
+
+app.MapPost("/login", (IAuthService service, [FromBody] LoginDTO dto) =>
+{
+    var result = service.ValidateLogin(dto);
+    if (!result.Success)
+    {
+        return Results.NotFound(new { message = result.Message });
+    }
+
+    return Results.Ok(new { message = "Login com sucesso!" });
+})
+    .WithTags("Auth");
+#endregion
+
 
 #region Usuarios
 /* ===================
@@ -114,32 +160,14 @@ app.UseHttpsRedirection();
  * ===================
  */
 
-// CADASTRO USUÁRIO
-app.MapPost("/user/sign-in", (IUserService service, [FromBody] LoginDTO dto) =>
-{
-    var newUser = service.CreateUser(dto);
-
-    return Results.CreatedAtRoute("GetUserById", new { id = newUser.Id }, newUser);
-}).WithTags("Usuários");
-
-// LOGIN USUÁRIO
-app.MapPost("/user/login", (IUserService service, [FromBody] LoginDTO dto) =>
-{
-    if (!service.ValidateUserLogin(dto))
-    {
-        return Results.NotFound();
-    }
-
-    return Results.Ok(new { message = "Login com sucesso!" });
-}).WithTags("Usuários");
-
 // BUSCAR USUÁRIO POR ID
 app.MapGet("/user/{id}", (IUserService service, int id) =>
 {
     var user = service.GetUserById(id);
     if (user is null) return Results.NotFound();
     return Results.Ok(user);
-}).WithTags("Usuários").WithName("GetUserById");
+})
+    .WithTags("Usuários").WithName("GetUserById");
 #endregion
 
 #region Admins
@@ -148,24 +176,6 @@ app.MapGet("/user/{id}", (IUserService service, int id) =>
  * ===================
  */
 
-// CADASTRO ADMIN
-app.MapPost("/admin/sign-in", (IAdminService service, [FromBody] LoginDTO dto) =>
-{
-    var newAdmin = service.CreateAdmin(dto);
-
-    return Results.CreatedAtRoute("GetAdminById", new { id = newAdmin.Id }, newAdmin);
-}).WithTags("Admins");
-
-// LOGIN ADMIN
-app.MapPost("/admin/login", (IAdminService service, [FromBody] LoginDTO dto) =>
-{
-    if (!service.ValidateAdminLogin(dto))
-        return Results.Unauthorized();
-
-    return Results.Ok(new { message = "Login com sucesso!" });
-
-}).WithTags("Admins");
-
 // BUSCAR ADMIN POR ID
 app.MapGet("/admin/{id}", (IAdminService service, int id) =>
 {
@@ -173,8 +183,29 @@ app.MapGet("/admin/{id}", (IAdminService service, int id) =>
 
     if (admin is null) return Results.NotFound();
 
-    return Results.Ok(admin);
-}).WithTags("Admins").WithName("GetAdminById");
+    return Results.Ok(new
+    {
+        id = admin.Id,
+        email = admin.Email,
+        cargo = admin.Cargo.ToString()
+    });
+})
+    .WithTags("Admins").WithName("GetAdminById");
+
+// BUSCAR USUÁRIO POR ID
+app.MapGet("/admin/user/{id}", (IUserService service, int id) =>
+{
+    var user = service.GetUserById(id);
+    if (user is null) return Results.NotFound();
+
+    return Results.Ok(new
+    {
+        id = user.Id,
+        email = user.Email,
+        cargo = user.Cargo.ToString()
+    });
+})
+    .WithTags("Admins").WithName("AdminGetUserById");
 
 // LISTAR TODOS USUÁRIOS (COM FILTROS)
 app.MapGet("/admin/users",
@@ -183,7 +214,7 @@ app.MapGet("/admin/users",
         int pageSize = 10,
         bool ordenarCrescente = false,
         string? email = null,
-        Cargos? cargo = null) =>
+        Cargo? cargo = null) =>
 {
     var filters = new AllUserListFilterDTO(
         pagina,
@@ -196,7 +227,8 @@ app.MapGet("/admin/users",
     var resultado = service.ListAllUsers(filters);
 
     return Results.Ok(resultado);
-}).WithTags("Admins");
+})
+    .WithTags("Admins");
 #endregion
 
 #region Veiculos

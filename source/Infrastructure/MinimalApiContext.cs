@@ -21,9 +21,12 @@ public class MinimalApiContext : DbContext
             new Usuario
             {
                 Id = -1,
+                Nome = "Admin Teste",
                 Email = "admin@teste.com",
-                Senha = "123456",
-                Cargo = Enums.Cargos.Admin
+                SenhaHash = "123456",
+                Cargo = Enums.Cargo.Admin,
+                isAtivo = true,
+                DataCriacao = DateTime.UtcNow
             }
         );
     }
