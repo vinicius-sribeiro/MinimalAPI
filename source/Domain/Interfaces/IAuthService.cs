@@ -6,6 +6,7 @@ namespace MinimalAPI.Domain.Interfaces;
 
 public interface IAuthService
 {
-    ReturnResult<Usuario> RegisterUser(RegisterDto dto, Cargo cargo);
-    ReturnResult<Usuario> ValidateLogin(LoginDTO dto);
+    ReturnAuthResult<Usuario> RegisterUser(RegisterDto dto, Cargo cargo);
+    ReturnAuthResult<Usuario> ValidateLogin(LoginDTO dto);
+    ReturnAuthResult<TokenUsuarioDTO> GetMe();
 }

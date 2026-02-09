@@ -7,13 +7,15 @@ public class Usuario
 {
     public int Id { get; set; }
 
-    [StringLength(255)]
+    [Required(ErrorMessage = "Nome é obrigatório")]
+    [StringLength(255, ErrorMessage = "Nome deve ter no máximo 255 caracteres")]    
     public required string Nome { get; set; }
-
-    [StringLength(255)]
+    
+    [Required(ErrorMessage = "Nome é obrigatório")]
+    [EmailAddress(ErrorMessage = "Email inválido")]
     public required string Email { get; set; }
 
-    [StringLength(50)]
+    [Required(ErrorMessage = "Senha é obrigatória")]
     public required string SenhaHash { get; set; }
 
     public required Cargo Cargo { get; set; }

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MinimalAPI.Infrastructure;
 
@@ -11,9 +12,11 @@ using MinimalAPI.Infrastructure;
 namespace MinimalAPI.Migrations
 {
     [DbContext(typeof(MinimalApiContext))]
-    partial class MinimalApiContextModelSnapshot : ModelSnapshot
+    [Migration("20260206185306_UpdateFieldSenhaHash")]
+    partial class UpdateFieldSenhaHash
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -62,7 +65,7 @@ namespace MinimalAPI.Migrations
                         {
                             Id = -1,
                             Cargo = 1,
-                            DataCriacao = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            DataCriacao = new DateTime(2026, 2, 6, 18, 53, 5, 957, DateTimeKind.Utc).AddTicks(9956),
                             Email = "admin@teste.com",
                             Nome = "Admin Teste",
                             SenhaHash = "123456",

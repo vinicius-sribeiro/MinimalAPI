@@ -1,13 +1,19 @@
-using Scalar.AspNetCore;
-using MinimalAPI.Domain.DTOs;
-using MinimalAPI.Infrastructure;
-using Microsoft.EntityFrameworkCore;
-using MinimalAPI.Domain.Interfaces;
-using MinimalAPI.Domain.Services;
+﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
+using MinimalAPI.Domain.DTOs;
+using MinimalAPI.Domain.Interfaces;
 using MinimalAPI.Domain.Models;
-using System.Security.Authentication;
+using MinimalAPI.Domain.Services;
 using MinimalAPI.Enums;
+using MinimalAPI.Extensions;
+using MinimalAPI.Infrastructure;
+using Scalar.AspNetCore;
+using System.Security.Authentication;
+using System.Security.Claims;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,13 +21,13 @@ var builder = WebApplication.CreateBuilder(args);
 
 #region .NET CONTAINER DI 
 /*
- *  Esse container serve para a cria��o das inst�ncias dos servi�os ou objetos que os endpoints ir�o utilizar.
+ *  Esse container serve para a criação das instâncias dos serviços ou objetos que os endpoints irão utilizar.
  *  
- *  Ele � respons�vel por gerenciar o ciclo de vida desses objetos (SERVICE LIFETIME).
+ *  Ele é responsável por gerenciar o ciclo de vida desses objetos (SERVICE LIFETIME).
  *  
- *  Ele tamb�m resolve as depend�ncias entre os objetos, ou seja, quando um objeto depende de outro (DEPENDENCY INJECTION). 
+ *  Ele também resolve as dependências entre os objetos, ou seja, quando um objeto depende de outro (DEPENDENCY INJECTION). 
  *  
- *  Por causa dele, em vez de criar as inst�ncias manualmente, os endpoints podem simplesmente solicitar o objeto necess�rio ao container.
+ *  Por causa dele, em vez de criar as instâncias manualmente, os endpoints podem simplesmente solicitar o objeto necessário ao container.
  *  
  *  - Manualmente:
  *      app.MapGet("/endpoint", () => {
@@ -38,29 +44,29 @@ var builder = WebApplication.CreateBuilder(args);
 
 #region DEPENDENCY INJECTION (DI)
 /* 
- * A inje��o de depend�ncia (DI) � um padr�o de design que permite a um objeto receber suas depend�ncias de fontes externas,
- *   em vez de criar essas depend�ncias internamente.
+ * A injeção de dependência (DI) é um padrão de design que permite a um objeto receber suas dependências de fontes externas,
+ *   em vez de criar essas dependências internamente.
  */
 #endregion
 
 #region SERVICE LIFETIME
 /* 
  * 
- * - Transient: Uma nova inst�ncia � criada cada vez que o servi�o � solicitado.
- *              Pode criar mais de uma inst�ncia por requisi��o.
- *              Tempo de vida curto (tempo da inst�ncia��o do objeto).
+ * - Transient: Uma nova instância é criada cada vez que o serviço é solicitado.
+ *              Pode criar mais de uma instância por requisição.
+ *              Tempo de vida curto (tempo da instânciação do objeto).
  *             
- * - Scoped: Uma �nica inst�ncia � criada por requisi��o.
- *           Servi�os que dependem do DbContext geralmente s�o registrados como Scoped.
- *           Tempo de vida intermedi�rio (tempo da requisi��o).
+ * - Scoped: Uma única instância é criada por requisição.
+ *           Serviços que dependem do DbContext geralmente são registrados como Scoped.
+ *           Tempo de vida intermediário (tempo da requisição).
  *           
- * - Singleton: Uma �nica inst�ncia � criada e compartilhada durante toda a vida �til da aplica��o.
- *              Tempo de vida longo (tempo da aplica��o at� ela acabar).
+ * - Singleton: Uma única instância é criada e compartilhada durante toda a vida útil da aplicação.
+ *              Tempo de vida longo (tempo da aplicação até ela acabar).
  * 
- * Ordem de depend�ncia:
+ * Ordem de dependência:
  *      - Transient pode depender de Scoped e Singleton.
  *      - Scoped pode depender de Singleton.
- *      - Singleton n�o deve depender de Scoped ou Transient.
+ *      - Singleton não deve depender de Scoped ou Transient.
  */
 #endregion
 
@@ -72,18 +78,104 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 
 var serverVersion = ServerVersion.AutoDetect(connectionString);
 
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+{
+    // Transformação do documento OpenAPI para adicionar informações e suporte a JWT
+    options.AddDocumentTransformer((document, context, CancellationToken) =>
+    {
+        // Metadados básicos do documento OpenAPI
+        document.Info = new()
+        {
+            Title = "Minimal API - Sistema de Veiculos",
+            Version = "v1"
+        };
 
+        // Adicionando suporte a JWT no Scalar
+        document.Components ??= new();
+        document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
+
+        // Definição do esquema de segurança para JWT Bearer
+        // Isso descreve como o JWT deve ser enviado (no header Authorization) e o formato esperado (Bearer)
+        document.Components.SecuritySchemes.Add("Bearer", new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.Http, // Autenticação HTTP
+            Scheme = "bearer", // padrão JWT
+            BearerFormat = "JWT", // formato do token
+            In = ParameterLocation.Header, // Vai no Header
+            Name = "Authorization", // Nome do header
+            Description = "JWT Authorization header using the Bearer scheme."
+        });
+
+        // 🔐 Exige JWT globalmente (necessário para o Scalar)
+        // Esse trecho indica que todas as operações na API exigem autenticação JWT, a menos que seja explicitamente permitido o acesso anônimo.
+        document.Security = new List<OpenApiSecurityRequirement>
+        {
+            new OpenApiSecurityRequirement
+            {
+                {
+                    // Referência ao esquema de segurança definido acima (Bearer)
+                    new OpenApiSecuritySchemeReference(
+                        "Bearer", // referenceId
+                        document // OpenApiDocument (can be null, but here we pass the current document)                      
+                    ),
+                    new List<string>()
+                }
+            }
+        };
+
+        return Task.CompletedTask;
+    });
+});
+
+
+// DbContext
 builder.Services.AddDbContext<MinimalApiContext>(options =>
 {
     options.UseMySql(connectionString, serverVersion);
 });
 
+builder.Services.AddHttpContextAccessor();
 
+// Services
 builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IVeiculoService, VeiculoService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IUserContext, HttpContextUserContext>();
+
+// Jwt
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+    .AddJwtBearer(options =>
+    {
+        var secretKey = builder.Configuration["Jwt:Key"]!;
+
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
+
+            ClockSkew = TimeSpan.Zero
+        };
+    });
+
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", policy =>
+        policy.RequireRole(Cargo.Admin.ToString()));
+});
+
 #endregion
 
 #region APP
@@ -93,14 +185,43 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+
     app.MapScalarApiReference(options =>
     {
-        options
-        .WithTitle("My Minimal API Documentation")
-        .WithTheme(ScalarTheme.Purple)
-        .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
+        options.WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
     });
 }
+
+app.UseAuthentication();
+
+/* ========= MIDDLEWARE AUTHENTICATION =========
+ * ====== RESUMO ======
+ * Toda requisição que for feita pelo Cliente, irá passar por esse Middleware.
+ * Ele irá validar o Token JWT com base nas configurações que definimos no **builder**.
+ * Após a validação, ele extrai as claims, criando um **ClaimsPrincipal**
+ * Define HttpContext.User = ClaimsPrincipal
+
+ ### 📚 O que é ClaimsPrincipal?
+ ClaimsPrincipal = Objeto que representa o **usuário autenticado** com todas as suas **claims**.
+ 
+ ### Fluxo Completo:
+ * 1. Cliente faz requisição com token JWT no header
+   Authorization: Bearer eyJhbGci...
+   ↓
+ * 2.Middleware de Autenticação intercepta
+   ↓
+ * 3. Middleware DECODIFICA o token JWT
+   ↓
+ * 4. Middleware EXTRAI as claims do token
+   ↓
+ * 5. Middleware CRIA um ClaimsPrincipal com essas claims
+   ↓
+ * 6. Middleware ADICIONA ClaimsPrincipal ao HttpContext.User
+   ↓
+ * 7. Seu código acessa HttpContext.User
+*/
+
+app.UseAuthorization();
 
 app.MapGet("/", () => Results.Redirect("/scalar")).ExcludeFromDescription();
 
@@ -109,75 +230,129 @@ app.UseHttpsRedirection();
 
 #region ENDPOINTS
 
-#region AUTH
-/* ===================
-*  AUTH
-* ===================
-*/
+#region === AUTH ===
 
-// CADASTRO USU�RIO
-app.MapPost("/user/register", (IAuthService service, [FromBody] RegisterDto dto) =>
+var auth = app.MapGroup("api/auth").WithTags("Autenticação");
+
+// CADASTRO USUÁRIO
+auth.MapPost("/register", (IAuthService service, [FromBody] RegisterDto dto) =>
 {
     var result = service.RegisterUser(dto, Cargo.User);
 
-    if (!result.Success) 
-        return Results.Conflict(new { message = result.Message });
+    if (!result.Success)
+    {
+        switch (result.ErrorType)
+        {
+            case AuthErrorType.EmailAlreadyExists:
+                return Results.Conflict(new { message = result.Message });
+            default:
+                return Results.Unauthorized();
+        }
+    }
 
-    return Results.CreatedAtRoute("GetUserById", new { id = result.Data?.Id }, result.Data);
+    return Results.Created($"/api/users/{result.Data?.Id}", result.TokenResponse);
 })
-    .WithTags("Usu�rios");
+    .AllowAnonymous()
+    .WithName("Registro")
+    .WithSummary("Criar nova conta de usuário.");
 
 // CADASTRO ADMIN
-app.MapPost("/admin/register", (IAuthService service, [FromBody] RegisterDto dto) =>
+auth.MapPost("/admin/register", (IAuthService service, [FromBody] RegisterDto dto) =>
 {
     var result = service.RegisterUser(dto, Cargo.Admin);
 
-    if (!result.Success) 
-        return Results.Conflict(new { message = result.Message });
-
-    return Results.CreatedAtRoute("GetAdminById", new { id = result.Data?.Id }, result.Data);
-})
-    .WithTags("Admins");
-
-
-app.MapPost("/login", (IAuthService service, [FromBody] LoginDTO dto) =>
-{
-    var result = service.ValidateLogin(dto);
     if (!result.Success)
     {
-        return Results.NotFound(new { message = result.Message });
+        switch (result.ErrorType)
+        {
+            case AuthErrorType.EmailAlreadyExists:
+                return Results.Conflict(new { message = result.Message });
+            default:
+                return Results.Unauthorized();
+        }
     }
 
-    return Results.Ok(new { message = "Login com sucesso!" });
+    return Results.Created($"/api/admin/{result.Data?.Id}", result.TokenResponse);
 })
-    .WithTags("Auth");
+    .RequireAuthorization("AdminOnly")
+    .WithName("Registro Admins")
+    .WithSummary("Criar uma nova conta de administrador.");
+
+// LOGIN
+auth.MapPost("/login", (IAuthService service, [FromBody] LoginDTO dto) =>
+{
+    var result = service.ValidateLogin(dto);
+
+    if (!result.Success)
+    {
+        switch (result.ErrorType)
+        {
+            case AuthErrorType.InvalidCredentials:
+                return Results.Unauthorized();
+            case AuthErrorType.UserNotFound:
+                return Results.Unauthorized();
+            case AuthErrorType.InactiveAccount:
+                return Results.Problem(
+                    statusCode: 403,
+                    title: "Conta inativa",
+                    detail: result.Message
+                );
+            default:
+                return Results.Unauthorized();
+        }
+    }
+
+    return Results.Ok(result.TokenResponse);
+})
+    .AllowAnonymous()
+    .WithName("Login")
+    .WithSummary("Fazer login e obter token JWT.");
+
+// PEGAR USUÁRIO
+auth.MapGet("/me", (IAuthService service) =>
+{
+    var result = service.GetMe();
+
+    if (!result.Success)
+    {
+        switch (result.ErrorType)
+        {
+            case AuthErrorType.Unauthorized:
+                return Results.Unauthorized();
+            case AuthErrorType.UserNotFound:
+                return Results.NotFound();
+        }
+    }
+
+    return Results.Ok(result.Data);
+
+})
+    .RequireAuthorization()
+    .WithName("GetMe")
+    .WithSummary("Obter dados do usuário autenticado.");
 #endregion
 
+#region === USUÁRIOS ===
 
-#region Usuarios
-/* ===================
- *  USU�RIOS
- * ===================
- */
+var users = app.MapGroup("api/users").WithTags("Usuários").RequireAuthorization();
 
-// BUSCAR USU�RIO POR ID
-app.MapGet("/user/{id}", (IUserService service, int id) =>
+// BUSCAR USUÁRIO POR ID
+users.MapGet("/{id}", (IUserService service, int id) =>
 {
     var user = service.GetUserById(id);
     if (user is null) return Results.NotFound();
     return Results.Ok(user);
 })
-    .WithTags("Usu�rios").WithName("GetUserById");
+   .WithName("GetUserById")
+   .WithSummary("Pegar um usuário pelo seu Id.");
 #endregion
 
-#region Admins
-/* ===================
- *  ADMINS
- * ===================
- */
+#region === ADMINS ===
+
+var admin = app.MapGroup("api/admin").WithTags("Administradores").RequireAuthorization("AdminOnly");
 
 // BUSCAR ADMIN POR ID
-app.MapGet("/admin/{id}", (IAdminService service, int id) =>
+admin.MapGet("/{id}", (IAdminService service, int id) =>
 {
     var admin = service.GetAdminById(id);
 
@@ -190,31 +365,16 @@ app.MapGet("/admin/{id}", (IAdminService service, int id) =>
         cargo = admin.Cargo.ToString()
     });
 })
-    .WithTags("Admins").WithName("GetAdminById");
+    .WithName("GetAdminById")
+    .WithSummary("Pegar um admin pelo seu Id.");
 
-// BUSCAR USU�RIO POR ID
-app.MapGet("/admin/user/{id}", (IUserService service, int id) =>
-{
-    var user = service.GetUserById(id);
-    if (user is null) return Results.NotFound();
-
-    return Results.Ok(new
-    {
-        id = user.Id,
-        email = user.Email,
-        cargo = user.Cargo.ToString()
-    });
-})
-    .WithTags("Admins").WithName("AdminGetUserById");
-
-// LISTAR TODOS USU�RIOS (COM FILTROS)
-app.MapGet("/admin/users",
-    (   IAdminService service,
-        int pagina = 1,
-        int pageSize = 10,
-        bool ordenarCrescente = false,
-        string? email = null,
-        Cargo? cargo = null) =>
+// LISTAR TODOS USUÁRIOS (COM FILTROS)
+admin.MapGet("/all", (IAdminService service,
+                        int pagina = 1,
+                        int pageSize = 10,
+                        bool ordenarCrescente = false,
+                        string? email = null,
+                        Cargo? cargo = null) =>
 {
     var filters = new AllUserListFilterDTO(
         pagina,
@@ -228,34 +388,37 @@ app.MapGet("/admin/users",
 
     return Results.Ok(resultado);
 })
-    .WithTags("Admins");
+    .WithName("ListAllUsers")
+    .WithSummary("Lista dos os usuários e admins.");
 #endregion
 
-#region Veiculos
-/* ===================
- *  VEICULOS
- * ===================
- */
+#region === VEÍCULOS ===
+
+var veiculos = app.MapGroup("api/veiculos").WithTags("Veiculos");
 
 // CRIAR 
-app.MapPost("/veiculos", (IVeiculoService service, [FromBody] AddVeiculoDTO dto) =>
+veiculos.MapPost("/", (IVeiculoService service, IUserContext userContext, [FromBody] AddVeiculoDTO dto) =>
 {
+    if (!userContext.TryGetUserId(out int userId))
+        return Results.Unauthorized();
+
     var veiculo = service.AddVeiculo(dto);
 
-    return Results.CreatedAtRoute("GetVeiculoById", new { id = veiculo.Id }, veiculo);
-}).WithTags("Veiculos");
+    return Results.Created($"api/veiculos/{veiculo.Id}", veiculo);
+})
+    .RequireAuthorization()
+    .WithName("CreateVeiculo")
+    .WithSummary("Cadastrar veículos.");
 
 // LISTAR VEICULOS COM FILTROS
-app.MapGet("/veiculos",
-    (IVeiculoService service,
-    int pagina = 1,
-    int pageSize = 10,
-    bool ordenarCrescente = false,
-    string? nome = null,
-    string? marca = null,
-    string? cor = null,
-    int? ano = null
-    ) =>
+veiculos.MapGet("/", (IVeiculoService service,
+                        int pagina = 1,
+                        int pageSize = 10,
+                        bool ordenarCrescente = false,
+                        string? nome = null,
+                        string? marca = null,
+                        string? cor = null,
+                        int? ano = null) =>
 {
     var filters = new VeiculoListFilterDTO(
         pagina,
@@ -270,21 +433,27 @@ app.MapGet("/veiculos",
     var resultado = service.ListAll(filters);
 
     return Results.Ok(resultado);
-}).WithTags("Veiculos");
+})
+    .AllowAnonymous()
+    .WithName("ListAllVeiculos")
+    .WithSummary("Listagem dos veículos.");
 
 // BUSCAR UM VEICULO ESPECIFICO
-app.MapGet("/veiculos/{id}", (IVeiculoService service, [FromRoute] int id) =>
+veiculos.MapGet("/{id}", (IVeiculoService service, [FromRoute] int id) =>
 {
     var resultado = service.GetSpecificById(id);
 
     if (resultado is null) return Results.NotFound();
 
     return Results.Ok(resultado);
-}).WithTags("Veiculos").WithName("GetVeiculoById");
+})
+    .AllowAnonymous()
+    .WithName("GetVeiculosById")
+    .WithSummary("Obter veículo específico.");
 
 
 // DELETAR
-app.MapDelete("/veiculos/{id}", (IVeiculoService service, int id) =>
+veiculos.MapDelete("/{id}", (IVeiculoService service, int id) =>
 {
     try
     {
@@ -296,10 +465,13 @@ app.MapDelete("/veiculos/{id}", (IVeiculoService service, int id) =>
     }
 
     return Results.Ok(new { message = "Veiculo removido com sucesso!" });
-}).WithTags("Veiculos");
+})
+    .RequireAuthorization(policy => policy.RequireRole(Cargo.Admin.ToString()))
+    .WithName("DeleteVeiculos")
+    .WithSummary("Remoção dos veículos.");
 
 // ATUALIZAR
-app.MapPatch("/veiculos/{id}", (IVeiculoService service, int id, [FromBody] UpdateVeiculoDTO dto) =>
+veiculos.MapPatch("/veiculos/{id}", (IVeiculoService service, int id, [FromBody] UpdateVeiculoDTO dto) =>
 {
     try
     {
@@ -316,7 +488,10 @@ app.MapPatch("/veiculos/{id}", (IVeiculoService service, int id, [FromBody] Upda
 
     return Results.NoContent();
 
-}).WithTags("Veiculos");
+})
+    .RequireAuthorization()
+    .WithName("UpdateVeiculos")
+    .WithSummary("Atualização dos veículos.");
 
 #endregion
 

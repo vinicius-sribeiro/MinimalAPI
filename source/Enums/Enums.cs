@@ -6,14 +6,13 @@ public enum Cargo
     User = 2
 }
 
-public enum  StatusCode
+public enum AuthErrorType
 {
-    Ok = 200,
-    Created = 201,
-    NoContent = 204,
-    BadRequest = 400,
-    Unauthorized = 401,
-    Forbidden = 403,
-    NotFound = 204,
-    Conflict = 409
+    InvalidCredentials,
+    Unauthorized,
+    UserNotFound,
+    EmailAlreadyExists,
+    InactiveAccount,
+    UnknownError,
+    NoneError
 }

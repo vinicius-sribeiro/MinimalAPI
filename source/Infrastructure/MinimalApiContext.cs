@@ -26,7 +26,7 @@ public class MinimalApiContext : DbContext
                 SenhaHash = "123456",
                 Cargo = Enums.Cargo.Admin,
                 isAtivo = true,
-                DataCriacao = DateTime.UtcNow
+                DataCriacao = new DateTime(2026, 1, 1)
             }
         );
     }

@@ -3,6 +3,7 @@ using MinimalAPI.Domain.DTOs;
 using MinimalAPI.Domain.Interfaces;
 using MinimalAPI.Domain.Models;
 using MinimalAPI.Enums;
+using MinimalAPI.Extensions;
 using MinimalAPI.Infrastructure;
 using System.Linq.Expressions;
 
@@ -10,19 +11,24 @@ namespace MinimalAPI.Domain.Services;
 
 public class AuthService : IAuthService
 {
-    public readonly MinimalApiContext _context;
+    private readonly MinimalApiContext _context;
+    private readonly ITokenService _tokenService;   
+    private readonly IUserContext _userContext;
 
-    public AuthService(MinimalApiContext context)
+    public AuthService(MinimalApiContext context, ITokenService tokenService, IUserContext userContext)
     {
         _context = context;
+        _tokenService = tokenService;
+        _userContext = userContext;
     }
 
-    public ReturnResult<Usuario> RegisterUser(RegisterDto dto, Cargo cargo)
+    public ReturnAuthResult<Usuario> RegisterUser(RegisterDto dto, Cargo cargo)
     {
         // Validar se email já existe
-        if (_context.Usuarios.Any(u => string.Equals(u.Email, dto.Email, StringComparison.OrdinalIgnoreCase)))
+        var email = dto.Email.ToLowerInvariant();
+        if (_context.Usuarios.Any(u => u.Email.ToLower() == email))
         {
-            return ReturnResult<Usuario>.Fail(StatusCode.Conflict, "Email já cadastrado");
+            return ReturnAuthResult<Usuario>.Fail(AuthErrorType.EmailAlreadyExists, "Email já cadastrado");
         }       
 
         var newUser = new Usuario
@@ -35,23 +41,61 @@ public class AuthService : IAuthService
             DataCriacao = DateTime.UtcNow
         };
 
-        // Gerar Token
-
         _context.Usuarios.Add(newUser);
         _context.SaveChanges();
 
-        return ReturnResult<Usuario>.Ok(newUser);
+        // Gerar Token
+        var token = _tokenService.GenerateToken(newUser);
+        var expiresAt = _tokenService.ObterDataExpiracao();
+
+        var response = new TokenResponseDTO(
+            Token: token,
+            TokenType: "Bearer",
+            ExpiresAt: expiresAt,
+            Usuario: new TokenUsuarioDTO(newUser.Id, newUser.Nome, newUser.Email, newUser.Cargo)
+        );     
+
+        return ReturnAuthResult<Usuario>.Ok(newUser, response);
     }
 
-    public ReturnResult<Usuario> ValidateLogin(LoginDTO dto)
+    public ReturnAuthResult<Usuario> ValidateLogin(LoginDTO dto)
     {
-        var user = _context.Usuarios.FirstOrDefault(u => u.Email == dto.Email && u.SenhaHash == dto.Senha);
+        var user = _context.Usuarios.FirstOrDefault(u => u.Email == dto.Email.ToLower());
 
-        if (user is null) return ReturnResult<Usuario>.Fail(StatusCode.NotFound, "Usuário não cadastrado");
+        if (user is null) 
+            return ReturnAuthResult<Usuario>.Fail(AuthErrorType.UserNotFound, "Usuário não cadastrado.");
 
         if (!BCrypt.Net.BCrypt.Verify(dto.Senha, user.SenhaHash))
-            return false;
+            return ReturnAuthResult<Usuario>.Fail(AuthErrorType.InvalidCredentials);
 
-        return ReturnResult<Usuario>.Ok(user);
+        if (!user.isAtivo)
+            return ReturnAuthResult<Usuario>.Fail(AuthErrorType.InactiveAccount, "Sua conta está inativa. Entre em contato com o suporte.");
+
+        // Gerar Token
+        var token = _tokenService.GenerateToken(user);
+        var expiresAt = _tokenService.ObterDataExpiracao();
+
+        var tokenResponse = new TokenResponseDTO(
+            Token: token,
+            TokenType: "Bearer",
+            ExpiresAt: expiresAt,
+            Usuario: new TokenUsuarioDTO(user.Id, user.Nome, user.Email, user.Cargo)
+        );
+
+        return ReturnAuthResult<Usuario>.Ok(user, tokenResponse);
     }
+
+    public ReturnAuthResult<TokenUsuarioDTO> GetMe()
+    {
+        if (!_userContext.TryGetUserId(out int userId))
+            return ReturnAuthResult<TokenUsuarioDTO>.Fail(AuthErrorType.Unauthorized, "Usuário não autorizado");
+
+        var user = _context.Usuarios.AsNoTracking().FirstOrDefault(u => u.Id == userId);
+        if (user == null)
+            return ReturnAuthResult<TokenUsuarioDTO>.Fail(AuthErrorType.UserNotFound, "Usuário não encontrado.");
+
+        var dto = new TokenUsuarioDTO(user.Id, user.Nome, user.Email, user.Cargo);
+
+        return ReturnAuthResult<TokenUsuarioDTO>.Ok(dto);
+    }   
 }
