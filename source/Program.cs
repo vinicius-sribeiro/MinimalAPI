@@ -5,14 +5,10 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using MinimalAPI.Domain.DTOs;
 using MinimalAPI.Domain.Interfaces;
-using MinimalAPI.Domain.Models;
 using MinimalAPI.Domain.Services;
 using MinimalAPI.Enums;
-using MinimalAPI.Extensions;
 using MinimalAPI.Infrastructure;
 using Scalar.AspNetCore;
-using System.Security.Authentication;
-using System.Security.Claims;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -78,6 +74,20 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 
 var serverVersion = ServerVersion.AutoDetect(connectionString);
 
+// CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("InternalFrontend", policy =>
+    {
+        policy
+            .WithOrigins("http://localhost:3000", "https://localhost:7082") // Substitua pelo URL do seu frontend
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
+});
+
+// EDITOR DE DOCUMENTAÇÃO OPENAPI (Swagger/Scalar)
 builder.Services.AddOpenApi(options =>
 {
     // Transformação do documento OpenAPI para adicionar informações e suporte a JWT
@@ -127,7 +137,6 @@ builder.Services.AddOpenApi(options =>
     });
 });
 
-
 // DbContext
 builder.Services.AddDbContext<MinimalApiContext>(options =>
 {
@@ -143,6 +152,7 @@ builder.Services.AddScoped<IVeiculoService, VeiculoService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IUserContext, HttpContextUserContext>();
+builder.Services.AddScoped<IHttpContext, HttpContextService>();
 
 // Jwt
 builder.Services.AddAuthentication(options =>
@@ -166,6 +176,16 @@ builder.Services.AddAuthentication(options =>
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
 
             ClockSkew = TimeSpan.Zero
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                // Permitir leitura do token JWT do cookie
+                context.Token = context.Request.Cookies["access_token"];
+                return Task.CompletedTask;
+            }
         };
     });
 
@@ -191,6 +211,56 @@ if (app.Environment.IsDevelopment())
         options.WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
     });
 }
+
+app.UseHttpsRedirection();
+
+/* ========= MIDDLEWARE CORS ========
+ * O Cors é um mecanismo de segurança que restringe os reponses a requisições feitas por scripts rodando em um domínio diferente do domínio da API.
+ * Mas o problema é que o Cors apenas bloqueia a resposta, ou seja, a requisição ainda chega na API, 
+ *      e isso pode ser um problema para ataques CSRF (Cross-Site Request Forgery).
+ * 
+ * Onde se o um usuário malicioso criar um site com um script que faz requisições para a API, o Cors não irá bloquear essas requisições. 
+ */
+
+/* ======== MIDDLEWARE CSRF ========
+ * O CSRF é um tipo de ataque onde um usuário malicioso engana um usuário autenticado para fazer uma requisição indesejada em uma aplicação web.
+ * Pois como estamos enviado e recebendo o token JWT via cookie, 
+ *      o navegador irá enviar automaticamente o cookie em todas as requisições para a API, mesmo que a requisição seja feita por um site malicioso.
+ * 
+ * Portanto, criamos um Middleware para validar o token CSRF, onde o cliente deve enviar um token CSRF no header X-CSRF-Token, 
+ *      e esse token deve ser igual ao token CSRF armazenado no cookie.
+ * 
+ * Assim conseguimos validar se a requisição é legítima (feita pelo cliente) ou se é um ataque CSRF (feita por um site malicioso).
+ */
+
+/* ======= RESUMO ======
+ * O CORS serve para bloquear ataques de XSS (Cross-Site Scripting), onde um site malicioso tenta acessar a API diretamente do navegador.
+ * Impedindo que o script malicioso consiga ler a resposta da API, mas ele ainda pode fazer requisições para a API.
+ * 
+ * Então o CRSF Token serve para bloquear ataques de CSRF (Cross-Site Request Forgery),
+ *      onde um site malicioso engana um usuário autenticado para fazer uma requisição indesejada em uma aplicação web.
+ * 
+ */
+app.UseCors("InternalFrontend");
+
+app.Use(async (context, next) =>
+{
+    if (HttpMethods.IsPost(context.Request.Method) ||
+        HttpMethods.IsPut(context.Request.Method) ||
+        HttpMethods.IsPatch(context.Request.Method))
+    {
+        var csrfCookie = context.Request.Cookies["XSRF-TOKEN"];
+        var csrfHeader = context.Request.Headers["X-CSRF-Token"].FirstOrDefault();
+
+        if (string.IsNullOrEmpty(csrfCookie) || string.IsNullOrEmpty(csrfHeader) || csrfCookie != csrfHeader)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;            
+            return;
+        }
+
+        await next();
+    }
+});
 
 app.UseAuthentication();
 
@@ -224,8 +294,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/", () => Results.Redirect("/scalar")).ExcludeFromDescription();
-
-app.UseHttpsRedirection();
 #endregion
 
 #region ENDPOINTS
@@ -279,7 +347,7 @@ auth.MapPost("/admin/register", (IAuthService service, [FromBody] RegisterDto dt
     .WithSummary("Criar uma nova conta de administrador.");
 
 // LOGIN
-auth.MapPost("/login", (IAuthService service, [FromBody] LoginDTO dto) =>
+auth.MapPost("/login", (IAuthService service, IHttpContext httpContext, [FromBody] LoginDTO dto) =>
 {
     var result = service.ValidateLogin(dto);
 
@@ -301,6 +369,33 @@ auth.MapPost("/login", (IAuthService service, [FromBody] LoginDTO dto) =>
                 return Results.Unauthorized();
         }
     }
+
+    // JWT - HttpOnly
+    httpContext.GerenateCookie(
+        key: "access_token",
+        jwt: result.TokenResponse!.Token,
+        cookieOptions: new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.None,
+            Path = "/",
+            Expires = result.TokenResponse.ExpiresAt
+        }
+    );
+
+    // CSRF - Não HttpOnly
+    httpContext.GerenateCookie(
+        key: "XSRF-TOKEN",
+        jwt: httpContext.GenerateCsrfToken(),
+        cookieOptions: new CookieOptions
+        {
+            HttpOnly = false,
+            Secure = true,
+            SameSite = SameSiteMode.None,
+            Path = "/"            
+        }
+    );
 
     return Results.Ok(result.TokenResponse);
 })

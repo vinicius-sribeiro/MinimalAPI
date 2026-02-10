@@ -2,6 +2,7 @@
 using MinimalAPI.Enums;
 using MinimalAPI.Extensions;
 using System.Security.Claims;
+using System.Security.Cryptography;
 
 namespace MinimalAPI.Domain.Services;
 
@@ -30,5 +31,5 @@ public class HttpContextUserContext : IUserContext
     {
         userId = User?.GetUserId() ?? -2;        
         return userId >= -1;
-    }
+    }    
 }

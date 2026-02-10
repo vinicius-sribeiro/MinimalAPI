@@ -3,6 +3,7 @@ using MinimalAPI.Domain.Interfaces;
 using MinimalAPI.Domain.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace MinimalAPI.Domain.Services;
@@ -54,5 +55,5 @@ public class TokenService : ITokenService
     {
         var expirationMinutes = int.Parse(_config["Jwt:ExpirationInMinutes"]!);
         return DateTime.UtcNow.AddMinutes(expirationMinutes);
-    }
+    }    
 }
