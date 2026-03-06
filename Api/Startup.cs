@@ -32,13 +32,13 @@ public class Startup
     public void ConfigureServices(IServiceCollection services)
     {
         var connectionString = Configuration.GetConnectionString("DefaultConnection") ??
-            throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");        
+            throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 
         // DbContext
         services.AddDbContext<MinimalApiContext>(options =>
         {
             options.UseMySql(
-                connectionString, 
+                connectionString,
                 ServerVersion.AutoDetect(connectionString)
             );
         });
@@ -49,7 +49,7 @@ public class Startup
             options.AddPolicy("InternalFrontend", policy =>
             {
                 policy
-                    .WithOrigins("http://localhost:3000", "https://localhost:7082") // Substitua pelo URL do seu frontend
+                    .WithOrigins("http://localhost:3000", "http://localhost:5000", "https://localhost:7082") // Substitua pelo URL do seu frontend
                     .AllowAnyHeader()
                     .AllowAnyMethod()
                     .AllowCredentials();
@@ -160,7 +160,7 @@ public class Startup
     }
 
     public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
-    {        
+    {
         app.UseHttpsRedirection();
         app.UseRouting();
         app.UseCors("InternalFrontend");
@@ -168,21 +168,21 @@ public class Startup
         app.UseAuthorization();
         app.UseEndpoints(endpoints =>
         {
+            endpoints.MapOpenApi();
+
+            endpoints.MapScalarApiReference(options =>
+            {
+                options.WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
+                options.Title = "API Documentation";
+                options.Theme = ScalarTheme.Default;
+                options.Authentication = new ScalarAuthenticationOptions
+                {
+                    PreferredSecuritySchemes = new[] { "Bearer" }
+                };
+            });
+
             if (env.IsDevelopment())
             {
-                endpoints.MapOpenApi();
-
-                endpoints.MapScalarApiReference(options =>
-                {
-                    options.WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
-                    options.Title = "API Documentation";
-                    options.Theme = ScalarTheme.Default;
-                    options.Authentication = new ScalarAuthenticationOptions
-                    {
-                        PreferredSecuritySchemes = new[] { "Bearer" }
-                    };
-                });
-
                 using (var scope = app.ApplicationServices.CreateScope())
                 {
                     // Usamos isso para simular uma chamada de serviço HTTP, para podermos usar o Seed
